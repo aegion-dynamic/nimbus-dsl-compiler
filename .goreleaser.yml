@@ -1,0 +1,39 @@
+version: 2
+
+project_name: nimbus-dsl-compile
+
+builds:
+  - id: nimbus-dsl-compile
+    main: .
+    binary: nimbus-dsl-compile
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+
+archives:
+  - id: default
+    ids:
+      - nimbus-dsl-compile
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    wrap_in_directory: false
+
+checksum:
+  name_template: checksums.txt
+

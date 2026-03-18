@@ -56,6 +56,47 @@ Ping the configured database and exit:
 - Positional `configFolder`: path to a folder containing `dev.yaml` and `queries/`.
 - `--db-status`: ping the configured database and exit.
 
+## Installation (from Releases)
+
+Prebuilt binaries are published as GitHub Release assets.
+
+Linux/macOS:
+```bash
+OS_ASSET="$(uname -s)"
+case "$OS_ASSET" in
+  Linux) OS_ASSET="linux" ;;
+  Darwin) OS_ASSET="darwin" ;;
+  *) echo "Unsupported OS: $OS_ASSET" >&2; exit 1 ;;
+esac
+
+ARCH_ASSET="$(uname -m)"
+case "$ARCH_ASSET" in
+  x86_64|amd64) ARCH_ASSET="amd64" ;;
+  arm64|aarch64) ARCH_ASSET="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH_ASSET" >&2; exit 1 ;;
+esac
+
+curl -L -o nimbus-dsl-compile.tar.gz \
+  "https://github.com/aegion-dynamic/nimbus-dsl-compiler/releases/latest/download/nimbus-dsl-compile_${OS_ASSET}_${ARCH_ASSET}.tar.gz"
+tar -xzf nimbus-dsl-compile.tar.gz
+chmod +x nimbus-dsl-compile
+# Move to somewhere on your PATH (adjust for your OS)
+sudo mv nimbus-dsl-compile /usr/local/bin/
+```
+
+Windows (PowerShell):
+```powershell
+$arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
+$arch = switch ($arch) {
+  "X64" { "amd64" }
+  "Arm64" { "arm64" }
+  default { throw "Unsupported architecture: $arch" }
+}
+
+curl -L -o nimbus-dsl-compile.zip "https://github.com/aegion-dynamic/nimbus-dsl-compiler/releases/latest/download/nimbus-dsl-compile_windows_$arch.zip"
+Expand-Archive -Force nimbus-dsl-compile.zip -DestinationPath .
+```
+
 ## Config format
 
 ### `dev.yaml`
