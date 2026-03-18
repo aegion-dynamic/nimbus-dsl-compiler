@@ -10,6 +10,8 @@ import (
 type CLI struct {
 	ConfigFolderPath string `arg:"" name:"configFolder" help:"Path to config folder containing dev.yaml and queries/"`
 	DBStatus         bool   `name:"db-status" help:"Ping the configured database and exit"`
+	Verbose          bool   `name:"verbose" help:"Print the full per-query output"`
+	JSONPath         string `name:"json" help:"Write a machine-readable JSON summary to this file path"`
 }
 
 func main() {
@@ -41,7 +43,7 @@ func main() {
 		return
 	}
 
-	if err := Compile(cfg, gj); err != nil {
+	if err := Compile(cfg, gj, cli.Verbose, cli.JSONPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

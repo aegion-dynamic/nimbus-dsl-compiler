@@ -55,6 +55,8 @@ Ping the configured database and exit:
 
 - Positional `configFolder`: path to a folder containing `dev.yaml` and `queries/`.
 - `--db-status`: ping the configured database and exit.
+- `--verbose`: print the full per-query output (query text, variables, and per-table details).
+- `--json=STRING`: write a machine-readable JSON summary (totals + per-file breakdown) to the given file path. When `--json` is set, the TUI summary is skipped; `--verbose` output can still be printed if you also pass `--verbose`.
 
 ## Installation (from Releases)
 
@@ -133,13 +135,14 @@ Variables files (optional):
 
 ## Output
 
-For each query, the tool prints:
+By default (no `--verbose`), the tool prints a concise validation summary:
 
-- The query file path and its contents.
-- The variables JSON (pretty-printed) if present, otherwise `null`.
-- A validation section describing:
-  - Missing tables (if GraphJin cannot find them in schema introspection).
-  - Missing columns/fields per table (based on GraphQL AST traversal).
+- Totals across all processed query files.
+- A per-file breakdown of what categories of validation errors were found (missing tables, missing columns, GraphJin ExplainQuery errors, etc.).
+
+When `--verbose` is set, it retains the original behavior of printing each query’s full contents and variables, along with a detailed validation section.
+
+When `--json` is set, it additionally writes a JSON file containing the same aggregated summary model (totals + per-file breakdown).
 
 ## Notes / behavior
 
