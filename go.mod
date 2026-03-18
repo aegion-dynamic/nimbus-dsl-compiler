@@ -1,4 +1,4 @@
-module github.com/aegion-dynamic/nimbus-dsl-compile
+module github.com/aegion-dynamic/nimbus-dsl-compiler
 
 go 1.25.3
 
