@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/dosco/graphjin/core/v3"
 )
 
 type CompileError struct {
@@ -50,9 +52,10 @@ func processQuery(queryFilePath, variablesFilePath string) (*CompileResult, erro
 	return res, nil
 }
 
-func Compile(config *Config) error {
+func Compile(config *Config, gj *core.GraphJin) error {
 	queriesDir := config.ConfigFileLocations.QueriesFolderPath
 	fmt.Printf("reading queries from %s\n", queriesDir)
+
 	queries, err := os.ReadDir(queriesDir)
 	if err != nil {
 		return err
@@ -95,6 +98,58 @@ func Compile(config *Config) error {
 			}
 			fmt.Printf("--- data (%s) ---\n", variablesFilePath)
 			fmt.Println(string(pretty))
+		}
+
+		varsRaw, err := jsonRawFromVars(compileResult.Variables)
+		if err != nil {
+			return fmt.Errorf("vars JSON for %q: %w", query.Name(), err)
+		}
+
+		validation, err := ValidateGraphjinQueryTablesAndColumns(
+			gj,
+			compileResult.Query,
+			varsRaw,
+			"user", // bypass permission blocking when role config isn't populated
+			config.graphjinDev.EnableCamelcase,
+		)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "validation error for %q: %v\n", query.Name(), err)
+			fmt.Println("----------------------------------------")
+			continue
+		}
+
+		anyMissing := len(validation.MissingTables) > 0
+		for _, tr := range validation.Tables {
+			if len(tr.MissingColumns) > 0 {
+				anyMissing = true
+				break
+			}
+		}
+
+		fmt.Println("--- validation ---")
+		if len(validation.ExplainErrors) > 0 {
+			fmt.Printf("GraphJin ExplainQuery errors:\n")
+			for _, e := range validation.ExplainErrors {
+				fmt.Printf("  - %s\n", e)
+			}
+		}
+
+		if !anyMissing && len(validation.ExplainErrors) == 0 {
+			fmt.Printf("OK: tables=%d\n", len(validation.Tables))
+		} else {
+			if len(validation.MissingTables) > 0 {
+				fmt.Printf("Missing tables: %s\n", strings.Join(validation.MissingTables, ", "))
+			}
+			for _, tr := range validation.Tables {
+				if len(tr.MissingColumns) == 0 {
+					continue
+				}
+				fmt.Printf("Table %s\n", tr.Table)
+				if len(tr.ExistingColumns) > 0 {
+					fmt.Printf("  existing columns: %s\n", strings.Join(tr.ExistingColumns, ", "))
+				}
+				fmt.Printf("  missing columns: %s\n", strings.Join(tr.MissingColumns, ", "))
+			}
 		}
 
 		fmt.Println("----------------------------------------")
