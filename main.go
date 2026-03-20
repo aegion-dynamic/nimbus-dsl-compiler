@@ -12,6 +12,7 @@ type CLI struct {
 	DBStatus         bool   `name:"db-status" help:"Ping the configured database and exit"`
 	Verbose          bool   `name:"verbose" help:"Print the full per-query output"`
 	JSONPath         string `name:"json" help:"Write a machine-readable JSON summary to this file path"`
+	Execute          bool   `name:"execute" help:"Execute queries/mutations after validation"`
 }
 
 func main() {
@@ -46,5 +47,12 @@ func main() {
 	if err := Compile(cfg, gj, cli.Verbose, cli.JSONPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	if cli.Execute {
+		if err := Execute(cfg, gj, cli.Verbose, cli.JSONPath); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 }

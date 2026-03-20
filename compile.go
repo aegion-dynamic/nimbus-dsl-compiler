@@ -80,6 +80,7 @@ type SummaryTotals struct {
 type ValidationSummary struct {
 	Totals SummaryTotals      `json:"totals"`
 	Files  []FileIssueSummary `json:"files"`
+	Execution *ExecutionSummary `json:"execution,omitempty"`
 }
 
 func writeValidationSummaryJSON(jsonPath string, summary ValidationSummary) error {
@@ -210,38 +211,28 @@ func Compile(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 		fmt.Printf("reading queries from %s\n", queriesDir)
 	}
 
-	queries, err := os.ReadDir(queriesDir)
+	pairs, err := discoverQueryFilePairs(queriesDir)
 	if err != nil {
 		return err
 	}
 
 	byBase := make(map[string]*FileIssueSummary)
-	foundQueries := 0
-	for _, query := range queries {
-		if query.IsDir() {
-			continue
-		}
-
-		name := query.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".graphql" && ext != ".gql" {
-			continue
-		}
-		foundQueries++
-
-		base := strings.TrimSuffix(name, ext)
-		queryFilePath := filepath.Join(queriesDir, query.Name())
-		variablesFilePath := filepath.Join(queriesDir, base+".json")
+	foundQueries := len(pairs)
+	for _, pair := range pairs {
+		name := pair.QueryFileName
+		base := pair.Base
+		queryFilePath := pair.QueryFilePath
+		variablesFilePath := pair.VariablesPath
 
 		compileResult, err := processQuery(queryFilePath, variablesFilePath)
 		if err != nil {
-			return fmt.Errorf("processing query %q: %w", query.Name(), err)
+			return fmt.Errorf("processing query %q: %w", name, err)
 		}
 
 		issue := byBase[base]
 		if issue == nil {
 			issue = &FileIssueSummary{
-				QueryFile: query.Name(),
+				QueryFile: name,
 				QueryBase: base,
 			}
 			byBase[base] = issue
@@ -255,11 +246,11 @@ func Compile(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 			if compileResult.VariablesMissing {
 				fmt.Printf("--- data (%s) ---\n", variablesFilePath)
 				fmt.Println("null")
-				fmt.Fprintf(os.Stderr, "warning: data JSON not found for %q (expected %s)\n", query.Name(), variablesFilePath)
+				fmt.Fprintf(os.Stderr, "warning: data JSON not found for %q (expected %s)\n", name, variablesFilePath)
 			} else {
 				pretty, err := json.MarshalIndent(compileResult.Variables, "", "  ")
 				if err != nil {
-					return fmt.Errorf("pretty-printing variables for %q: %w", query.Name(), err)
+					return fmt.Errorf("pretty-printing variables for %q: %w", name, err)
 				}
 				fmt.Printf("--- data (%s) ---\n", variablesFilePath)
 				fmt.Println(string(pretty))
@@ -270,7 +261,7 @@ func Compile(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 
 		varsRaw, err := jsonRawFromVars(compileResult.Variables)
 		if err != nil {
-			return fmt.Errorf("vars JSON for %q: %w", query.Name(), err)
+			return fmt.Errorf("vars JSON for %q: %w", name, err)
 		}
 
 		validation, err := ValidateGraphjinQueryTablesAndColumns(
@@ -283,7 +274,7 @@ func Compile(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 		if err != nil {
 			issue.ValidationError = err.Error()
 			if verbose {
-				fmt.Fprintf(os.Stderr, "validation error for %q: %v\n", query.Name(), err)
+				fmt.Fprintf(os.Stderr, "validation error for %q: %v\n", name, err)
 				fmt.Println("----------------------------------------")
 			}
 			continue

@@ -2,7 +2,7 @@
 
 `nimbus-dsl-compile` is a small CLI that reads GraphQL query files from a config folder and validates that the referenced GraphJin tables/columns exist in the configured Postgres schema.
 
-It does **not** execute the mutations/queries. Instead, it:
+By default, it does **not** execute the mutations/queries. Instead, it validates them:
 
 1. Loads GraphJin config from `dev.yaml` (subset of keys).
 2. Connects to Postgres via `config/dev.yaml`.
@@ -11,6 +11,7 @@ It does **not** execute the mutations/queries. Instead, it:
    2. Calls GraphJin `ExplainQuery` to discover touched tables.
    3. Walks the GraphQL AST to verify requested fields exist as columns (and follows relationship selections).
 4. Prints a per-query validation report to stdout (warnings/errors to stderr).
+5. (Optional) When `--execute` is provided, it also executes the queries/mutations via GraphJin and prints the raw response `data`/`errors`.
 
 ## Repo layout
 
@@ -56,7 +57,8 @@ Ping the configured database and exit:
 - Positional `configFolder`: path to a folder containing `dev.yaml` and `queries/`.
 - `--db-status`: ping the configured database and exit.
 - `--verbose`: print the full per-query output (query text, variables, and per-table details).
-- `--json=STRING`: write a machine-readable JSON summary (totals + per-file breakdown) to the given file path. When `--json` is set, the TUI summary is skipped; `--verbose` output can still be printed if you also pass `--verbose`.
+- `--execute`: execute queries/mutations after validation (prints GraphJin response to stdout/stderr).
+- `--json=STRING`: write a machine-readable JSON summary (totals + per-file breakdown) to the given file path. When `--json` is set, the TUI summary is skipped; if you also pass `--execute` and any execution issues occur, an `execution` section is added to this JSON.
 
 ## Installation (from Releases)
 
@@ -148,5 +150,6 @@ When `--json` is set, it additionally writes a JSON file containing the same agg
 
 - Validation intentionally bypasses GraphJin production security and allow-list checks (so you can validate schema/columns without being blocked by runtime authorization).
 - It uses a fixed role value of `user` when calling `ExplainQuery`.
+- When `--execute` is provided, it also executes each `*.gql` / `*.graphql` file with a fixed role value of `user`.
 - When `enable_camelcase` is enabled in `dev.yaml`, the tool normalizes requested field names from `lowerCamelCase` / `UpperCamelCase` to `snake_case` to match GraphJin’s SQL column naming behavior.
 
