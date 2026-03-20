@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -200,6 +201,87 @@ func parseGraphQLDocument(query string) (*graphschema.QueryDocument, error) {
 		return nil, fmt.Errorf("graphql parse: %w", err)
 	}
 	return doc, nil
+}
+
+func variableDefinitionRequiresExplicitBinding(iv *graphschema.InputValue) bool {
+	if iv == nil {
+		return false
+	}
+	if iv.Default != nil {
+		return false
+	}
+	_, nonNull := iv.Type.(*graphschema.NonNull)
+	return nonNull
+}
+
+func collectOperationVariableDefinitions(doc *graphschema.QueryDocument) []*graphschema.InputValue {
+	byName := make(map[string]*graphschema.InputValue)
+	for _, op := range doc.Operations {
+		for _, v := range op.Vars {
+			if v == nil {
+				continue
+			}
+			nm := strings.TrimPrefix(v.Name, "$")
+			if nm == "" {
+				continue
+			}
+			iv := *v
+			iv.Name = nm
+			byName[nm] = &iv
+		}
+	}
+	out := make([]*graphschema.InputValue, 0, len(byName))
+	for _, v := range byName {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// MissingSuppliedGraphQLVariables returns variable names that are not satisfied by the JSON variables object.
+//
+// If variablesFileMissing is true (no sidecar JSON file), every variable declared on the document's
+// operations is listed, since the whole payload is absent.
+//
+// If the JSON file exists, only variables that are non-null with no default and are missing as object
+// keys are listed. (Omitted nullable variables are not reported.)
+func MissingSuppliedGraphQLVariables(query string, vars any, variablesFileMissing bool) ([]string, error) {
+	doc, err := parseGraphQLDocument(query)
+	if err != nil {
+		return nil, err
+	}
+	defer doc.Close()
+
+	defs := collectOperationVariableDefinitions(doc)
+	if len(defs) == 0 {
+		return []string{}, nil
+	}
+
+	supplied := make(map[string]struct{})
+	if vars != nil {
+		m, ok := vars.(map[string]any)
+		if ok {
+			for k := range m {
+				supplied[k] = struct{}{}
+			}
+		}
+	}
+
+	missing := make([]string, 0, len(defs))
+	for _, d := range defs {
+		_, present := supplied[d.Name]
+		if variablesFileMissing {
+			missing = append(missing, d.Name)
+			continue
+		}
+		if present {
+			continue
+		}
+		if variableDefinitionRequiresExplicitBinding(d) {
+			missing = append(missing, d.Name)
+		}
+	}
+	return missing, nil
 }
 
 // jsonRawFromVars converts vars (already decoded) into json.RawMessage for ExplainQuery.

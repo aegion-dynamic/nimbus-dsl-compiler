@@ -50,6 +50,26 @@ From a clone of this repository:
 go install ./cmd/nimbus-dsl-compile
 ```
 
+**Prefer a release tag** (for example `@v0.1.0`) once one exists: `proxy.golang.org` caches modules by version, so a tagged release is picked up reliably. Pseudo-versions from `@latest` can lag behind GitHub by a short time right after a push.
+
+#### `go install` error: “does not contain package …/cmd/nimbus-dsl-compile”
+
+That usually means the module version Go resolved (often via the public module proxy) is **older than the commit that added `cmd/nimbus-dsl-compile`**. The proxy can still serve a previous pseudo-version for `@latest` / `@main` for a while after you merge.
+
+**Workaround — install straight from Git (bypasses the proxy):**
+
+```bash
+GOPROXY=direct go install github.com/aegion-dynamic/nimbus-dsl-compiler/cmd/nimbus-dsl-compile@latest
+```
+
+**Or pin a specific Git commit** (full hash from the GitHub commit that contains `cmd/nimbus-dsl-compile`):
+
+```bash
+go install github.com/aegion-dynamic/nimbus-dsl-compiler/cmd/nimbus-dsl-compile@<commit-sha>
+```
+
+If a stale copy is stuck in your local module cache, drop that module’s cache entry or run `go clean -modcache` (clears all cached modules), then retry.
+
 ### Prebuilt binaries (GitHub Releases)
 
 Prebuilt archives are attached to [GitHub Releases](https://github.com/aegion-dynamic/nimbus-dsl-compiler/releases) for this repo.
@@ -164,18 +184,19 @@ Query files:
 Variables files (optional):
 
 - For each query file `NAME.gql` / `NAME.graphql`, this tool looks for `NAME.json` in the same folder.
-- If `NAME.json` is missing, validation still runs, but the tool prints a warning and treats variables as missing for the query’s ExplainQuery call.
+- If `NAME.json` is missing, validation still runs, but the tool prints a warning, passes empty variables into GraphJin, and reports **every variable name** declared on the operation as missing (so you know what to put in `NAME.json`).
+- If `NAME.json` exists but omits a **non-null** variable that has **no default**, that variable name is listed under `missing_variables` in JSON / the summary table (nullable variables may be omitted without being flagged).
 
 ## Output
 
 By default (no `--verbose`), the tool prints a concise validation summary:
 
-- Totals across all processed query files.
-- A per-file breakdown of what categories of validation errors were found (missing tables, missing columns, GraphJin ExplainQuery errors, etc.).
+- Totals across all processed query files (including a count of missing variable names).
+- A per-file breakdown of what categories of validation errors were found (missing tables, missing columns, GraphJin ExplainQuery errors, **missing GraphQL variable names**, etc.).
 
-When `--verbose` is set, it retains the original behavior of printing each query’s full contents and variables, along with a detailed validation section.
+When `--verbose` is set, it retains the original behavior of printing each query’s full contents and variables, along with a detailed validation section; it also prints a `missing variables for …:` line naming any variables that are absent when required.
 
-When `--json` is set, it additionally writes a JSON file containing the same aggregated summary model (totals + per-file breakdown).
+When `--json` is set, it additionally writes a JSON file containing the same aggregated summary model (totals + per-file breakdown). Each file entry can include `missing_variables` (string array of variable names, without a leading `$`).
 
 ## Notes / behavior
 

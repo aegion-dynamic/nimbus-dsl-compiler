@@ -45,6 +45,40 @@ func Execute(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 			continue
 		}
 
+		missingVars, mvErr := MissingSuppliedGraphQLVariables(compileResult.Query, compileResult.Variables, compileResult.VariablesMissing)
+		if mvErr != nil {
+			executionFailures++
+			fmt.Fprintf(os.Stderr, "variable check failed for %q: %v\n", name, mvErr)
+			executionErrors = append(executionErrors, ExecutionError{
+				QueryBase: base,
+				QueryFile: name,
+				LoadError: "variable check: " + mvErr.Error(),
+			})
+			continue
+		}
+		if len(missingVars) > 0 {
+			executionFailures++
+			fmt.Fprintf(os.Stderr, "missing variables for %q: %s\n", name, strings.Join(missingVars, ", "))
+			executionErrors = append(executionErrors, ExecutionError{
+				QueryBase:        base,
+				QueryFile:        name,
+				MissingVariables: missingVars,
+			})
+			if verbose {
+				fmt.Printf("=== %s ===\n", base)
+				fmt.Println(compileResult.Query)
+				if compileResult.VariablesMissing {
+					fmt.Fprintf(os.Stderr, "warning: data JSON not found for %q (expected %s)\n", name, variablesFilePath)
+					fmt.Println("--- data ---")
+					fmt.Println("null")
+				} else {
+					fmt.Println("--- data ---")
+					fmt.Printf("%#v\n", compileResult.Variables)
+				}
+			}
+			continue
+		}
+
 		varsRaw, err := jsonRawFromVars(compileResult.Variables)
 		if err != nil {
 			executionFailures++

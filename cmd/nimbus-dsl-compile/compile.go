@@ -30,6 +30,9 @@ type FileIssueSummary struct {
 	QueryFile        string              `json:"query_file"`
 	QueryBase        string              `json:"query_base"`
 	VariablesMissing bool                `json:"variables_missing,omitempty"`
+	// MissingVariables lists GraphQL variable names that are absent from the JSON variables object
+	// when they must be supplied (or every declared variable when the JSON file is missing).
+	MissingVariables []string            `json:"missing_variables,omitempty"`
 	ExplainErrors    []string            `json:"explain_errors,omitempty"`
 	MissingTables    []string            `json:"missing_tables,omitempty"`
 	MissingColumns   map[string][]string `json:"missing_columns,omitempty"`
@@ -46,6 +49,9 @@ func missingColumnsCount(m map[string][]string) int {
 
 func (f FileIssueSummary) HasIssues() bool {
 	if f.VariablesMissing {
+		return true
+	}
+	if len(f.MissingVariables) > 0 {
 		return true
 	}
 	if len(f.ExplainErrors) > 0 {
@@ -71,6 +77,8 @@ type SummaryTotals struct {
 	MissingColumnsFiles   int `json:"missing_columns_files"`
 	ValidationErrorFiles  int `json:"validation_error_files"`
 	VariablesMissingFiles int `json:"variables_missing_files"`
+	MissingVariableFiles  int `json:"missing_variable_files"`
+	TotalMissingVariables int `json:"total_missing_variables"`
 
 	TotalExplainErrors  int `json:"total_explain_errors"`
 	TotalMissingTables  int `json:"total_missing_tables"`
@@ -118,9 +126,10 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 	fmt.Println(title)
 
 	totalsLine := fmt.Sprintf(
-		"Total queries: %d | Files with issues: %d",
+		"Total queries: %d | Files with issues: %d | Missing variable names: %d",
 		summary.Totals.TotalQueries,
 		summary.Totals.FilesWithAnyIssues,
+		summary.Totals.TotalMissingVariables,
 	)
 	fmt.Println(lipgloss.NewStyle().Bold(true).Render(totalsLine))
 
@@ -145,6 +154,15 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 			varsMissingCell = "yes"
 		}
 
+		missingVarNamesCell := "-"
+		if len(f.MissingVariables) > 0 {
+			missingVarNamesCell = strings.Join(f.MissingVariables, ", ")
+			const maxLen = 44
+			if len(missingVarNamesCell) > maxLen {
+				missingVarNamesCell = missingVarNamesCell[:maxLen-1] + "…"
+			}
+		}
+
 		rows = append(rows, table.Row{
 			f.QueryBase,
 			fmt.Sprintf("%d", explainCount),
@@ -152,16 +170,18 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 			fmt.Sprintf("%d", missingColsCount),
 			validationErrCell,
 			varsMissingCell,
+			missingVarNamesCell,
 		})
 	}
 
 	columns := []table.Column{
-		{Title: "File", Width: 28},
+		{Title: "File", Width: 22},
 		{Title: "Explain", Width: 7},
-		{Title: "MissingTables", Width: 14},
-		{Title: "MissingColumns", Width: 15},
-		{Title: "ValidationErr", Width: 14},
-		{Title: "VarsMissing", Width: 12},
+		{Title: "MissingTables", Width: 12},
+		{Title: "MissingColumns", Width: 13},
+		{Title: "ValidationErr", Width: 12},
+		{Title: "NoVarsFile", Width: 11},
+		{Title: "Missing variables", Width: 46},
 	}
 
 	t := table.New(
@@ -258,6 +278,20 @@ func Compile(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 		}
 
 		issue.VariablesMissing = compileResult.VariablesMissing
+
+		missingVars, mvErr := MissingSuppliedGraphQLVariables(compileResult.Query, compileResult.Variables, compileResult.VariablesMissing)
+		if mvErr != nil {
+			issue.ValidationError = mvErr.Error()
+			if verbose {
+				fmt.Fprintf(os.Stderr, "variable check failed for %q: %v\n", name, mvErr)
+				fmt.Println("----------------------------------------")
+			}
+			continue
+		}
+		issue.MissingVariables = missingVars
+		if verbose && len(missingVars) > 0 {
+			fmt.Fprintf(os.Stderr, "missing variables for %q: %s\n", name, strings.Join(missingVars, ", "))
+		}
 
 		varsRaw, err := jsonRawFromVars(compileResult.Variables)
 		if err != nil {
@@ -382,6 +416,10 @@ func Compile(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 		}
 		if f.VariablesMissing {
 			totals.VariablesMissingFiles++
+		}
+		if len(f.MissingVariables) > 0 {
+			totals.MissingVariableFiles++
+			totals.TotalMissingVariables += len(f.MissingVariables)
 		}
 	}
 

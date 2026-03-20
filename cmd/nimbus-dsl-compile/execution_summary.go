@@ -19,6 +19,9 @@ type ExecutionError struct {
 	LoadError      string `json:"load_error,omitempty"`
 	VariablesError string `json:"variables_error,omitempty"`
 
+	// MissingVariables is set when required GraphQL variables are absent (or the JSON file is missing).
+	MissingVariables []string `json:"missing_variables,omitempty"`
+
 	// ExecutionError is only set when gj.GraphQL returned a non-nil `err`.
 	ExecutionError string `json:"execution_error,omitempty"`
 
