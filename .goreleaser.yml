@@ -4,7 +4,7 @@ project_name: nimbus-dsl-compile
 
 builds:
   - id: nimbus-dsl-compile
-    main: .
+    main: ./cmd/nimbus-dsl-compile
     binary: nimbus-dsl-compile
     goos:
       - linux

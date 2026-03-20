@@ -15,54 +15,44 @@ By default, it does **not** execute the mutations/queries. Instead, it validates
 
 ## Repo layout
 
-- `main.go`: CLI entrypoint.
-- `compile.go`: iterates query/variable files and prints results.
-- `config.go`: loads `dev.yaml` and the queries folder path.
-- `graphjin_validate.go`: performs table/column validation using GraphJin + Postgres introspection.
+- `cmd/nimbus-dsl-compile/`: CLI (`main.go` entrypoint, compile/config/validation helpers).
 - `config/`: example GraphJin config and query files used by this tool.
   - `config/dev.yaml`
   - `config/queries/*.gql` and `config/queries/*.json`
 
 ## Requirements
 
-- Go `>= 1.25` (see `go.mod`).
+- Go `>= 1.25` (see `go.mod`) — only if you install or run from source with `go install` / `go run`.
 - A reachable Postgres database matching the schema configured in `config/dev.yaml`.
 - A working GraphJin config in `config/dev.yaml`.
 
-## Usage
+## Installation
 
-### Run against the provided example config
+The compiled program is always invoked as **`nimbus-dsl-compile`** on your shell `PATH` (that name comes from the `cmd/nimbus-dsl-compile` package path, not from the repository name `nimbus-dsl-compiler`).
 
-```bash
-go run . ./config
-```
+### With Go (`go install`)
 
-### Build and run
+Install from GitHub (binary is written to `$(go env GOPATH)/bin` unless you set `GOBIN`; that directory must be on your `PATH`):
 
 ```bash
-go build -o nimbus-dsl-compile ./
-./nimbus-dsl-compile ./config
+go install github.com/aegion-dynamic/nimbus-dsl-compiler/cmd/nimbus-dsl-compile@latest
 ```
 
-### DB connectivity check
-
-Ping the configured database and exit:
+Pin to a specific tag when you publish releases:
 
 ```bash
-./nimbus-dsl-compile ./config --db-status
+go install github.com/aegion-dynamic/nimbus-dsl-compiler/cmd/nimbus-dsl-compile@v1.2.3
 ```
 
-## CLI arguments
+From a clone of this repository:
 
-- Positional `configFolder`: path to a folder containing `dev.yaml` and `queries/`.
-- `--db-status`: ping the configured database and exit.
-- `--verbose`: print the full per-query output (query text, variables, and per-table details).
-- `--execute`: execute queries/mutations after validation (prints GraphJin response to stdout/stderr).
-- `--json=STRING`: write a machine-readable JSON summary (totals + per-file breakdown) to the given file path. When `--json` is set, the TUI summary is skipped; if you also pass `--execute` and any execution issues occur, an `execution` section is added to this JSON.
+```bash
+go install ./cmd/nimbus-dsl-compile
+```
 
-## Installation (from Releases)
+### Prebuilt binaries (GitHub Releases)
 
-Prebuilt binaries are published as GitHub Release assets.
+Prebuilt archives are attached to [GitHub Releases](https://github.com/aegion-dynamic/nimbus-dsl-compiler/releases) for this repo.
 
 Linux/macOS:
 ```bash
@@ -100,6 +90,47 @@ $arch = switch ($arch) {
 curl -L -o nimbus-dsl-compile.zip "https://github.com/aegion-dynamic/nimbus-dsl-compiler/releases/latest/download/nimbus-dsl-compile_windows_$arch.zip"
 Expand-Archive -Force nimbus-dsl-compile.zip -DestinationPath .
 ```
+
+## Usage
+
+After installation, run the tool as **`nimbus-dsl-compile`**, passing the config directory as the first argument:
+
+```bash
+nimbus-dsl-compile /path/to/config
+```
+
+Example using the bundled sample config from a repository clone:
+
+```bash
+nimbus-dsl-compile ./config
+```
+
+### Run from source (no install)
+
+```bash
+go run ./cmd/nimbus-dsl-compile ./config
+```
+
+### Build a local binary
+
+```bash
+go build -o nimbus-dsl-compile ./cmd/nimbus-dsl-compile
+./nimbus-dsl-compile ./config
+```
+
+### DB connectivity check
+
+```bash
+nimbus-dsl-compile ./config --db-status
+```
+
+## CLI arguments
+
+- Positional `configFolder`: path to a folder containing `dev.yaml` and `queries/`.
+- `--db-status`: ping the configured database and exit.
+- `--verbose`: print the full per-query output (query text, variables, and per-table details).
+- `--execute`: execute queries/mutations after validation (prints GraphJin response to stdout/stderr).
+- `--json=STRING`: write a machine-readable JSON summary (totals + per-file breakdown) to the given file path. When `--json` is set, the TUI summary is skipped; if you also pass `--execute` and any execution issues occur, an `execution` section is added to this JSON.
 
 ## Config format
 
