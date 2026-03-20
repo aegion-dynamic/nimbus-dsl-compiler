@@ -47,6 +47,35 @@ func missingColumnsCount(m map[string][]string) int {
 	return total
 }
 
+// formatMissingColumnsDetail renders map[table][]column as "table: a, b; other: c" for TUI cells.
+func formatMissingColumnsDetail(m map[string][]string, maxLen int) string {
+	if len(m) == 0 {
+		return "-"
+	}
+	tables := make([]string, 0, len(m))
+	for t := range m {
+		tables = append(tables, t)
+	}
+	sort.Strings(tables)
+
+	var b strings.Builder
+	for ti, tableName := range tables {
+		cols := append([]string(nil), m[tableName]...)
+		sort.Strings(cols)
+		if ti > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(tableName)
+		b.WriteString(": ")
+		b.WriteString(strings.Join(cols, ", "))
+	}
+	s := b.String()
+	if maxLen > 0 && len(s) > maxLen {
+		return s[:maxLen-1] + "…"
+	}
+	return s
+}
+
 func (f FileIssueSummary) HasIssues() bool {
 	if f.VariablesMissing {
 		return true
@@ -126,10 +155,11 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 	fmt.Println(title)
 
 	totalsLine := fmt.Sprintf(
-		"Total queries: %d | Files with issues: %d | Missing variable names: %d",
+		"Total queries: %d | Files with issues: %d | Missing variable names: %d | Missing column fields: %d",
 		summary.Totals.TotalQueries,
 		summary.Totals.FilesWithAnyIssues,
 		summary.Totals.TotalMissingVariables,
+		summary.Totals.TotalMissingColumns,
 	)
 	fmt.Println(lipgloss.NewStyle().Bold(true).Render(totalsLine))
 
@@ -163,11 +193,14 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 			}
 		}
 
+		missingColsDetailCell := formatMissingColumnsDetail(f.MissingColumns, 52)
+
 		rows = append(rows, table.Row{
 			f.QueryBase,
 			fmt.Sprintf("%d", explainCount),
 			fmt.Sprintf("%d", missingTablesCount),
 			fmt.Sprintf("%d", missingColsCount),
+			missingColsDetailCell,
 			validationErrCell,
 			varsMissingCell,
 			missingVarNamesCell,
@@ -175,13 +208,14 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 	}
 
 	columns := []table.Column{
-		{Title: "File", Width: 22},
+		{Title: "File", Width: 20},
 		{Title: "Explain", Width: 7},
-		{Title: "MissingTables", Width: 12},
-		{Title: "MissingColumns", Width: 13},
-		{Title: "ValidationErr", Width: 12},
-		{Title: "NoVarsFile", Width: 11},
-		{Title: "Missing variables", Width: 46},
+		{Title: "MissTbl", Width: 8},
+		{Title: "#MissCol", Width: 9},
+		{Title: "Missing columns (table: col, …)", Width: 54},
+		{Title: "ValErr", Width: 7},
+		{Title: "NoVarsF", Width: 8},
+		{Title: "Missing variables", Width: 42},
 	}
 
 	t := table.New(
