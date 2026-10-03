@@ -8,9 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"charm.land/bubbles/v2/table"
 	"charm.land/lipgloss/v2"
+	table "charm.land/lipgloss/v2/table"
 	"github.com/aegion-dynamic/graphjin-slim/core/v3"
+	"golang.org/x/term"
 )
 
 type CompileError struct {
@@ -194,13 +195,13 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 		anyMissingVars = anyMissingVars || len(f.MissingVariables) > 0
 	}
 
-	rows := make([]table.Row, 0, len(issueFiles))
+	rows := make([][]string, 0, len(issueFiles))
 	for _, f := range issueFiles {
 		explainCount := len(f.ExplainErrors)
 		missingTablesCount := len(f.MissingTables)
 		missingColsCount := missingColumnsCount(f.MissingColumns)
 
-		row := table.Row{f.QueryBase}
+		row := []string{f.QueryBase}
 		if anyExplain {
 			row = append(row, formatCount(explainCount, dash, badCount))
 		}
@@ -228,43 +229,52 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 		rows = append(rows, row)
 	}
 
-	columns := []table.Column{{Title: "File", Width: 24}}
+	headers := []string{"File"}
 	if anyExplain {
-		columns = append(columns, table.Column{Title: "Explain", Width: 7})
+		headers = append(headers, "Explain")
 	}
 	if anyMissTable {
-		columns = append(columns, table.Column{Title: "MissTbl", Width: 8})
+		headers = append(headers, "MissTbl")
 	}
 	if anyMissCol {
-		columns = append(columns, table.Column{Title: "MissCols", Width: 8})
-		columns = append(columns, table.Column{Title: "Missing columns", Width: 54})
+		headers = append(headers, "MissCols", "Missing columns")
 	}
 	if anyValErr {
-		columns = append(columns, table.Column{Title: "ValErr", Width: 7})
+		headers = append(headers, "ValErr")
 	}
 	if anyVarsFile {
-		columns = append(columns, table.Column{Title: "NoVarsFile", Width: 9})
+		headers = append(headers, "NoVarsFile")
 	}
 	if anyMissingVars {
-		columns = append(columns, table.Column{Title: "Missing variables", Width: 44})
+		headers = append(headers, "Missing variables")
 	}
 
-	totalWidth := 0
-	for _, c := range columns {
-		// each cell carries padding (0,1) from DefaultStyles
-		totalWidth += c.Width + 2
+	// Fit the table inside the terminal so it does not overflow/wrap.
+	termW := 0
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+		termW = w
 	}
 
-	themed := table.DefaultStyles()
-	themed.Header = themed.Header.Bold(true).Foreground(lipgloss.Color("#7d56f4")).Border(lipgloss.NormalBorder(), false, false, true, false)
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithHeight(len(rows)+2),
-		table.WithWidth(totalWidth),
-		table.WithStyles(themed),
-	)
-	fmt.Println(lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7d56f4")).Padding(0, 1).Render(t.View()))
+	t := table.New().
+		Border(lipgloss.RoundedBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#7d56f4"))).
+		BorderColumn(false).
+		Headers(headers...).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			switch {
+			case row == table.HeaderRow:
+				return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7d56f4")).Padding(0, 1)
+			default:
+				return lipgloss.NewStyle().Padding(0, 1)
+			}
+		})
+	if termW > 0 {
+		t.Width(termW - 2)
+	}
+	for _, r := range rows {
+		t.Row(r...)
+	}
+	fmt.Println(t.String())
 }
 
 func formatCount(n int, zero, nonZero func(...string) string) string {

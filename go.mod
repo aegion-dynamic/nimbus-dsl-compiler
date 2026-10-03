@@ -3,16 +3,15 @@ module github.com/aegion-dynamic/nimbus-dsl-compiler
 go 1.26.0
 
 require (
-	charm.land/bubbles/v2 v2.2.1
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/alecthomas/kong v1.14.0
 	github.com/chirino/graphql v0.0.0-20220710191258-f420c1213e22
 	github.com/lib/pq v1.10.7
+	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	charm.land/bubbletea/v2 v2.0.10 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
