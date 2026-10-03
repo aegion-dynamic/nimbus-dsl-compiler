@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dosco/graphjin/core/v3"
+	"github.com/aegion-dynamic/graphjin-slim/core/v3"
 )
 
 type ExecuteResult struct {
@@ -91,8 +91,8 @@ func Execute(config *Config, gj *core.GraphJin, verbose bool, jsonPath string) e
 			continue
 		}
 
-		roleCtx := context.WithValue(context.Background(), core.UserRoleKey, "user")
-		res, execErr := gj.GraphQL(roleCtx, compileResult.Query, varsRaw, nil)
+		reqCtx := context.Background()
+		res, execErr := gj.GraphQL(reqCtx, compileResult.Query, varsRaw, nil)
 		if verbose {
 			fmt.Printf("=== %s ===\n", base)
 			fmt.Println(compileResult.Query)

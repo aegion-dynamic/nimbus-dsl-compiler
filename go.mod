@@ -7,12 +7,13 @@ require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/chirino/graphql v0.0.0-20220710191258-f420c1213e22
-	github.com/dosco/graphjin/core/v3 v3.14.2
 	github.com/lib/pq v1.10.7
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
+	github.com/aegion-dynamic/graphjin-slim/core/v3 v3.36.5
+	github.com/aegion-dynamic/graphjin-slim/graphql/v3 v3.36.5
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
@@ -38,7 +39,7 @@ require (
 	github.com/rogpeppe/go-internal v1.8.1 // indirect
 	github.com/stretchr/testify v1.8.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
