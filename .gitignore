@@ -35,3 +35,4 @@ config/*
 # GoReleaser artifacts
 dist/
 errors.json
+/nimbus-dsl-compile
