@@ -249,12 +249,19 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 		columns = append(columns, table.Column{Title: "Missing variables", Width: 44})
 	}
 
+	totalWidth := 0
+	for _, c := range columns {
+		// each cell carries padding (0,1) from DefaultStyles
+		totalWidth += c.Width + 2
+	}
+
 	themed := table.DefaultStyles()
 	themed.Header = themed.Header.Bold(true).Foreground(lipgloss.Color("#7d56f4")).Border(lipgloss.NormalBorder(), false, false, true, false)
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithHeight(len(rows)+2),
+		table.WithWidth(totalWidth),
 		table.WithStyles(themed),
 	)
 	fmt.Println(lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7d56f4")).Padding(0, 1).Render(t.View()))
