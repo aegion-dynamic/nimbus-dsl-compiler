@@ -8,9 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/dosco/graphjin/core/v3"
+	"charm.land/lipgloss/v2"
+	table "charm.land/lipgloss/v2/table"
+	"github.com/aegion-dynamic/graphjin-slim/core/v3"
+	"golang.org/x/term"
 )
 
 type CompileError struct {
@@ -151,80 +152,150 @@ func renderValidationSummaryTUI(summary ValidationSummary) {
 		}
 	}
 
-	title := lipgloss.NewStyle().Bold(true).Underline(true).Render("nimbus-dsl-compile: validation summary")
-	fmt.Println(title)
+	banner := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#ffffff")).
+		Background(lipgloss.Color("#7d56f4")).
+		Padding(0, 2).
+		MarginBottom(1).
+		Render("nimbus-dsl-compile • validation summary")
+	fmt.Println(banner)
 
-	totalsLine := fmt.Sprintf(
-		"Total queries: %d | Files with issues: %d | Missing variable names: %d | Missing column fields: %d",
-		summary.Totals.TotalQueries,
-		summary.Totals.FilesWithAnyIssues,
-		summary.Totals.TotalMissingVariables,
-		summary.Totals.TotalMissingColumns,
-	)
-	fmt.Println(lipgloss.NewStyle().Bold(true).Render(totalsLine))
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render
+	bold := lipgloss.NewStyle().Bold(true).Render
+	red := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e06c75")).Render
+	yellow := lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Render
+
+	fmt.Printf("%s %s  %s %s\n",
+		dim("queries:"), bold(fmt.Sprintf("%d", summary.Totals.TotalQueries)),
+		dim("files with issues:"), red(fmt.Sprintf("%d", summary.Totals.FilesWithAnyIssues)))
+	fmt.Printf("%s %s  %s %s\n\n",
+		dim("missing variable names:"), red(fmt.Sprintf("%d", summary.Totals.TotalMissingVariables)),
+		dim("missing column fields:"), yellow(fmt.Sprintf("%d", summary.Totals.TotalMissingColumns)))
 
 	if len(issueFiles) == 0 {
-		fmt.Println("OK: all queries validated")
+		ok := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#98c379")).Render
+		fmt.Println(ok("✓ all queries validated"))
 		return
 	}
 
-	rows := make([]table.Row, 0, len(issueFiles))
+	// Style buckets used per cell.
+	badCount := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e06c75")).Render
+	warning := lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Render
+	dash := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render
+
+	// Precompute which auxiliary columns are used at all.
+	anyExplain, anyMissTable, anyMissCol, anyValErr, anyVarsFile, anyMissingVars := false, false, false, false, false, false
+	for _, f := range issueFiles {
+		anyExplain = anyExplain || len(f.ExplainErrors) > 0
+		anyMissTable = anyMissTable || len(f.MissingTables) > 0
+		anyMissCol = anyMissCol || missingColumnsCount(f.MissingColumns) > 0
+		anyValErr = anyValErr || f.ValidationError != ""
+		anyVarsFile = anyVarsFile || f.VariablesMissing
+		anyMissingVars = anyMissingVars || len(f.MissingVariables) > 0
+	}
+
+	rows := make([][]string, 0, len(issueFiles))
 	for _, f := range issueFiles {
 		explainCount := len(f.ExplainErrors)
 		missingTablesCount := len(f.MissingTables)
 		missingColsCount := missingColumnsCount(f.MissingColumns)
 
-		validationErrCell := "-"
-		if f.ValidationError != "" {
-			validationErrCell = "yes"
+		row := []string{f.QueryBase}
+		if anyExplain {
+			row = append(row, formatCount(explainCount, dash, badCount))
 		}
-
-		varsMissingCell := "-"
-		if f.VariablesMissing {
-			varsMissingCell = "yes"
+		if anyMissTable {
+			row = append(row, formatCount(missingTablesCount, dash, badCount))
 		}
-
-		missingVarNamesCell := "-"
-		if len(f.MissingVariables) > 0 {
-			missingVarNamesCell = strings.Join(f.MissingVariables, ", ")
-			const maxLen = 44
-			if len(missingVarNamesCell) > maxLen {
-				missingVarNamesCell = missingVarNamesCell[:maxLen-1] + "…"
+		if anyMissCol {
+			row = append(row, formatCount(missingColsCount, dash, badCount))
+			row = append(row, formatMissingColumnsDetail(f.MissingColumns, 52))
+		}
+		if anyValErr {
+			row = append(row, formatYes(f.ValidationError != "", dash, badCount))
+		}
+		if anyVarsFile {
+			row = append(row, formatYes(f.VariablesMissing, dash, warning))
+		}
+		if anyMissingVars {
+			cell := dash("-")
+			if len(f.MissingVariables) > 0 {
+				cell = warning(truncateMiddle(strings.Join(f.MissingVariables, ", "), 44))
 			}
+			row = append(row, cell)
 		}
 
-		missingColsDetailCell := formatMissingColumnsDetail(f.MissingColumns, 52)
+		rows = append(rows, row)
+	}
 
-		rows = append(rows, table.Row{
-			f.QueryBase,
-			fmt.Sprintf("%d", explainCount),
-			fmt.Sprintf("%d", missingTablesCount),
-			fmt.Sprintf("%d", missingColsCount),
-			missingColsDetailCell,
-			validationErrCell,
-			varsMissingCell,
-			missingVarNamesCell,
+	headers := []string{"File"}
+	if anyExplain {
+		headers = append(headers, "Explain")
+	}
+	if anyMissTable {
+		headers = append(headers, "MissTbl")
+	}
+	if anyMissCol {
+		headers = append(headers, "MissCols", "Missing columns")
+	}
+	if anyValErr {
+		headers = append(headers, "ValErr")
+	}
+	if anyVarsFile {
+		headers = append(headers, "NoVarsFile")
+	}
+	if anyMissingVars {
+		headers = append(headers, "Missing variables")
+	}
+
+	// Fit the table inside the terminal so it does not overflow/wrap.
+	termW := 0
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+		termW = w
+	}
+
+	t := table.New().
+		Border(lipgloss.RoundedBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#7d56f4"))).
+		BorderColumn(false).
+		Headers(headers...).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			switch {
+			case row == table.HeaderRow:
+				return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7d56f4")).Padding(0, 1)
+			default:
+				return lipgloss.NewStyle().Padding(0, 1)
+			}
 		})
+	if termW > 0 {
+		t.Width(termW - 2)
 	}
-
-	columns := []table.Column{
-		{Title: "File", Width: 20},
-		{Title: "Explain", Width: 7},
-		{Title: "MissTbl", Width: 8},
-		{Title: "#MissCol", Width: 9},
-		{Title: "Missing columns (table: col, …)", Width: 54},
-		{Title: "ValErr", Width: 7},
-		{Title: "NoVarsF", Width: 8},
-		{Title: "Missing variables", Width: 42},
+	for _, r := range rows {
+		t.Row(r...)
 	}
+	fmt.Println(t.String())
+}
 
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithHeight(len(rows)+2),
-	)
-	borderStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).Padding(0, 1)
-	fmt.Println(borderStyle.Render(t.View()))
+func formatCount(n int, zero, nonZero func(...string) string) string {
+	if n == 0 {
+		return zero("-")
+	}
+	return nonZero(fmt.Sprintf("%d", n))
+}
+
+func formatYes(v bool, zero, nonZero func(...string) string) string {
+	if !v {
+		return zero("-")
+	}
+	return nonZero("yes")
+}
+
+func truncateMiddle(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-1] + "…"
 }
 
 func processQuery(queryFilePath, variablesFilePath string) (*CompileResult, error) {

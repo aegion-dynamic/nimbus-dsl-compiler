@@ -12,7 +12,10 @@ import (
 	_ "github.com/lib/pq"
 
 	graphschema "github.com/chirino/graphql/schema"
-	"github.com/dosco/graphjin/core/v3"
+	"github.com/aegion-dynamic/graphjin-slim/core/v3"
+	"github.com/aegion-dynamic/graphjin-slim/core/v3/langadapter"
+	"github.com/aegion-dynamic/graphjin-slim/core/v3/sdata"
+	_ "github.com/aegion-dynamic/graphjin-slim/graphql/v3"
 )
 
 type TableColumnValidation struct {
@@ -37,7 +40,7 @@ type QueryValidationReport struct {
 }
 
 // NewGraphJinFromDevConfig creates an initialized GraphJin engine for query compilation
-// (schema discovery + ExplainQuery), without enforcing production allow-lists/role blocking.
+// (schema discovery + query compiler), without enforcing production allow-lists/role blocking.
 func NewGraphJinFromDevConfig(dev graphjinDevConfig) (*core.GraphJin, *sql.DB, error) {
 	if strings.TrimSpace(dev.Database.Type) == "" {
 		dev.Database.Type = "postgres"
@@ -96,7 +99,7 @@ func NewGraphJinFromDevConfig(dev graphjinDevConfig) (*core.GraphJin, *sql.DB, e
 		return nil, nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	// Minimal core.Config: ExplainQuery + schema compilation works with DB introspection.
+	// Minimal core.Config: schema discovery + compilation works with DB introspection.
 	// Role-based blocking is bypassed by compiling as `user`, and production security is disabled.
 	conf := &core.Config{
 		DBType:           dev.Database.Type,
@@ -300,7 +303,7 @@ func jsonRawFromVars(vars any) (json.RawMessage, error) {
 // 1) referenced tables exist
 // 2) requested column-fields exist within each referenced table
 //
-// It uses ExplainQuery for "tables touched", and falls back to AST discovery if ExplainQuery fails.
+// Compiles the query via the langadapter compiler, then walks the AST for per-table column checks.
 func ValidateGraphjinQueryTablesAndColumns(
 	gj *core.GraphJin,
 	query string,
@@ -312,51 +315,66 @@ func ValidateGraphjinQueryTablesAndColumns(
 		Tables: make(map[string]*TableColumnValidation),
 	}
 
-	// 1) Table existence via ExplainQuery -> QueryExplanation.Tables -> GetTableSchema
-	exp, explainErr := gj.ExplainQuery(query, vars, role)
-	touched := make(map[string]struct{})
-
-	if explainErr != nil {
-		report.ExplainErrors = append(report.ExplainErrors, explainErr.Error())
-	} else if exp != nil && len(exp.Errors) == 0 {
-		for _, ti := range exp.Tables {
-			// In practice we can treat table name as unique for this project.
-			touched[ti.Table] = struct{}{}
-		}
-	} else if exp != nil {
-		report.ExplainErrors = append(report.ExplainErrors, exp.Errors...)
+	// 1) Compile the query against the engine's discovered schema using the
+	// same langadapter compiler GraphJin Slim's OpenAPI generator uses. Any
+	// compile error means the query is invalid GraphJin QL, and is mirrored
+	// into ExplainErrors the same way ExplainQuery errors were before.
+	inputs, specErr := gj.OpenAPISpecInputs(nil)
+	if specErr != nil {
+		return report, fmt.Errorf("openapi spec inputs: %w", specErr)
+	}
+	dbSchema := inputs.Databases[core.DefaultDBName]
+	if dbSchema == nil {
+		return report, fmt.Errorf("no discovered schema for the default database")
 	}
 
-	// Validate existence for any tables GraphJin reports as touched.
-	for tableName := range touched {
-		if _, err := gj.GetTableSchema(tableName); err != nil {
-			report.MissingTables = append(report.MissingTables, tableName)
+	langDesc, lerr := langadapter.Lookup(langadapter.DefaultLanguageName)
+	if lerr != nil {
+		return report, lerr
+	}
+	compilerFactory, ok := langDesc.(langadapter.CompilerFactory)
+	if !ok {
+		return report, fmt.Errorf("language %q does not provide a compiler", langadapter.DefaultLanguageName)
+	}
+	qcc, err := compilerFactory.NewCompiler(dbSchema, langadapter.CompileConfig{
+		DBSchema:        dbSchema.DBSchema(),
+		EnableCamelcase: enableCamelcase,
+	})
+	if err != nil {
+		return report, fmt.Errorf("new query compiler: %w", err)
+	}
+	var varsMap map[string]json.RawMessage
+	if len(vars) > 0 {
+		if err := json.Unmarshal(vars, &varsMap); err != nil {
+			return report, fmt.Errorf("vars JSON: %w", err)
 		}
 	}
+	if _, err := qcc.Compile([]byte(query), varsMap, langadapter.CompileOptions{}); err != nil {
+		report.ExplainErrors = append(report.ExplainErrors, err.Error())
+	}
 
-	// 2) Column existence via GraphQL AST walk + TableSchema.Columns
-	// We walk the full query AST to find which column fields were requested.
+	// 2) Column existence via GraphQL AST walk + sdata.DBSchema lookups.
 	doc, err := parseGraphQLDocument(query)
 	if err != nil {
 		return report, err
 	}
 	defer doc.Close()
 
-	// Per-table caches to reduce repeated GetTableSchema calls.
-	tableSchemaCache := make(map[string]*core.TableSchema)
-	getOrFetchTableSchema := func(tableName string) (*core.TableSchema, error) {
+	// Per-table caches to reduce repeated Find calls.
+	tableSchemaCache := make(map[string]*sdata.DBTable)
+	getOrFetchTableSchema := func(tableName string) (*sdata.DBTable, error) {
 		if ts, ok := tableSchemaCache[tableName]; ok {
 			return ts, nil
 		}
-		ts, err := gj.GetTableSchema(tableName)
+		t, err := dbSchema.Find("", tableName)
 		if err != nil {
 			return nil, err
 		}
-		tableSchemaCache[tableName] = ts
-		return ts, nil
+		tableSchemaCache[tableName] = &t
+		return &t, nil
 	}
 
-	colNamesSet := func(ts *core.TableSchema) map[string]struct{} {
+	colNamesSet := func(ts *sdata.DBTable) map[string]struct{} {
 		s := make(map[string]struct{}, len(ts.Columns))
 		for _, c := range ts.Columns {
 			s[c.Name] = struct{}{}
@@ -364,33 +382,27 @@ func ValidateGraphjinQueryTablesAndColumns(
 		return s
 	}
 
-	relFieldToTable := func(ts *core.TableSchema) map[string]string {
-		m := make(map[string]string, len(ts.Relationships.Outgoing)+len(ts.Relationships.Incoming))
-		for _, r := range ts.Relationships.Outgoing {
-			m[r.Name] = r.Table
+	relFieldToTable := func(ts *sdata.DBTable) map[string]string {
+		items, err := dbSchema.GetFirstDegree(*ts)
+		if err != nil {
+			return nil
 		}
-		for _, r := range ts.Relationships.Incoming {
-			m[r.Name] = r.Table
+		m := make(map[string]string, len(items))
+		for _, r := range items {
+			m[r.Name] = r.Table.Name
 		}
 		return m
 	}
 
 	// walkSelections walks the selection set under a known table schema,
 	// collecting which column-fields were requested and which are missing.
-	var walkSelections func(ts *core.TableSchema, sels graphschema.SelectionList)
-	walkSelections = func(ts *core.TableSchema, sels graphschema.SelectionList) {
+	var walkSelections func(ts *sdata.DBTable, sels graphschema.SelectionList)
+	walkSelections = func(ts *sdata.DBTable, sels graphschema.SelectionList) {
 		if ts == nil {
 			return
 		}
 
 		tableKey := ts.Name
-		// If GraphJin already told us touched tables, only report within that subset.
-		if len(touched) > 0 {
-			if _, ok := touched[tableKey]; !ok {
-				return
-			}
-		}
-
 		colSet := colNamesSet(ts)
 		relMap := relFieldToTable(ts)
 
@@ -441,15 +453,8 @@ func ValidateGraphjinQueryTablesAndColumns(
 				continue
 			}
 			rootTable := normalizeFieldName(rootField.Name, enableCamelcase)
-			if len(touched) > 0 {
-				if _, ok := touched[rootTable]; !ok {
-					continue
-				}
-			}
-
 			ts, err := getOrFetchTableSchema(rootTable)
 			if err != nil {
-				// If ExplainQuery didn't succeed, we still want missing-table errors.
 				report.MissingTables = appendIfMissing(report.MissingTables, rootTable)
 				continue
 			}
